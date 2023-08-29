@@ -1,0 +1,398 @@
+import tkinter as tk
+from tkinter import messagebox, filedialog, colorchooser
+import numpy as np
+from tkinter import simpledialog
+from PIL import Image, ImageTk
+import numpy as np
+
+# Root window
+root = tk.Tk()
+root.title("Map Generator")
+root.configure(bg="rosy brown")
+
+# Global variables
+matrix=None
+selected_points = []
+selected_obstacle_color = None
+objects = []
+selected_option = None 
+canvas_width = 800
+canvas_height = 600
+matrix_size = None
+selected_object=None
+obstacle_info = {}
+selected_color = None  
+
+def new_file():
+    global matrix_size
+    matrix_size = ask_matrix_size()
+    if matrix_size:
+        create_canvas(matrix_size)
+
+def ask_matrix_size():
+    input_string = simpledialog.askstring("Matrix Size", "Enter the number of rows and columns (comma-separated):")
+    if input_string:
+        size_list = input_string.split(",")
+        if len(size_list) == 2:
+            try:
+                rows = int(size_list[0])
+                columns = int(size_list[1])
+                return rows, columns
+            except ValueError:
+                pass
+    return None
+
+
+def create_canvas(size):
+    global matrix_size
+    rows, columns = size
+    pixel_size = min(canvas_width // columns, canvas_height // rows)
+    canvas.delete("all")
+    canvas.config(width=columns * pixel_size, height=rows * pixel_size)  # Adjust canvas dimensions
+
+    
+    for i in range(rows + 1):
+        y = i * pixel_size
+        canvas.create_line(0, y, canvas_width, y, fill="black")
+
+    for j in range(columns + 1):
+        x = j * pixel_size
+        canvas.create_line(x, 0, x, canvas_height, fill="black")
+
+    matrix_size = size
+    canvas.pack()
+
+def exit_program():
+    root.quit()
+
+def undo():
+    if objects:
+        last_object = objects.pop()
+        canvas.delete(last_object)
+
+def delete_area():
+    global selected_option, selected_points
+    selected_option = "Delete Area"
+    selected_points = []
+    messagebox.showinfo("Delete Area", "Select two points to define the deletion area.")
+
+def delete_objects_in_area():
+    global objects, matrix
+    min_row, min_column = selected_points[0]
+    max_row, max_column = selected_points[1]
+    pixel_size = get_pixel_size()
+    objects_to_delete = []
+    for obj in objects:
+        x1, y1, x2, y2 = canvas.coords(obj)
+        row1, column1 = get_grid_coordinates(x1, y1)
+        row2, column2 = get_grid_coordinates(x2, y2)
+        
+        if min_row <= row1 <= max_row and min_column <= column1 <= max_column:
+            objects_to_delete.append(obj)
+
+
+    for obj in objects_to_delete:
+        canvas.delete(obj)
+        objects.remove(obj)
+        x1, y1, x2, y2 = canvas.coords(obj)
+        row1, column1 = get_grid_coordinates(x1, y1)
+        row2, column2 = get_grid_coordinates(x2, y2)
+        
+        for row in range(min_row, max_row + 1):
+            for column in range(min_column, max_column + 1):
+                matrix[row, column] = 0
+    
+    canvas.update()
+
+def add_road():
+    global selected_option
+    selected_option = "Road"
+    global selected_points
+    selected_points = []
+    messagebox.showinfo("Add Road", "Select two points to form a road.")
+
+color_options = {
+    "Red": "#FF0000",
+    "Black": "#000000",
+    "Green": "#00FF00",
+    "Blue": "#0000FF",
+    "Yellow": "#FFFF00",
+    "Purple": "#800080",
+    "Orange": "#FFA500",
+    "Pink": "#FFC0CB",
+    "Gray": "#808080",
+    "Brown": "#A52A2A"
+}
+def color_to_property(color):
+    color_property_mapping = {
+        "Red": 2,
+        "Black": 3,
+        "Green": 4,
+        "Blue": 5,
+        "Yellow": 6,
+        "Purple": 7,
+        "Orange": 8,
+        "Pink": 9,
+        "Brown": 10
+    }
+    return color_property_mapping.get(color, 0)
+def ask_obstacle_value():
+    float_value = simpledialog.askfloat("Obstacle Value", "Enter a numeric value for the obstacle:")
+    return float_value
+
+
+def add_obstacle():
+    global selected_option, selected_obstacle_color
+    selected_option = "Obstacle"
+    selected_points = []
+    
+    color_tuple = colorchooser.askcolor(title="Select Obstacle Color")
+    if color_tuple[1]:
+        selected_obstacle_color = color_tuple[1]
+        selected_obstacle_value = ask_obstacle_value()
+        if selected_obstacle_value is not None:
+            obstacle_info[selected_obstacle_color] = selected_obstacle_value
+            draw_obstacle()
+
+
+def help_index():
+    messagebox.showinfo("Help", "Help Index:\n"
+                                "- New File: Create a new map file.\n"
+                                "- Load File: Load a map file.\n"
+                                "- Save Map: Save the current map to a file.\n"
+                                "- Exit: Quit the program.\n"
+                                "- Undo: Remove the last added object.\n"
+                                "- Delete: Delete the selected object.\n"
+                                "- Add Road: Add a road to the map. Select two points to connect them.\n"
+                                "- Add Obstacle: Add a custom obstacle to the map. You can select color and value of your choice. Select two points to form a rectangle or double click on a pixel to draw individually. \n"
+                                "- Help Index: Display this help information.")
+
+def about():
+    messagebox.showinfo("About", "Map generator application.\nDeveloped by Samiksha Shreya")
+
+
+def canvas_click(event):
+    global selected_points, selected_option, canvas
+
+    x = event.x
+    y = event.y
+
+    if selected_option == "Road" or selected_option == "Obstacle":
+        row, column = get_grid_coordinates(x, y)
+        if row is not None and column is not None:
+            selected_points.append((row, column))
+
+            if len(selected_points) == 2:
+                if selected_option == "Road":
+                    draw_road()
+                elif selected_option == "Obstacle":
+                    draw_obstacle()
+
+                selected_points = []
+
+                
+                if selected_option == "Delete Area":
+                    delete_objects_in_area()
+                    
+    elif selected_option == "Delete Area":
+        row, column = get_grid_coordinates(x, y)
+        if row is not None and column is not None:
+            selected_points.append((row, column))
+
+            if len(selected_points) == 2:
+                delete_objects_in_area()
+                selected_points = []
+    else:
+        pass
+
+def get_grid_coordinates(x, y):
+    pixel_size = get_pixel_size()
+    row = int(y / pixel_size)
+    column = int(x / pixel_size)
+    if matrix_size is not None:
+        rows, columns = matrix_size
+        if 0 <= row < rows and 0 <= column < columns:
+            return row, column
+    return None, None
+
+def get_pixel_size():
+    if matrix_size is not None:
+        rows, columns = matrix_size
+        pixel_size = min(canvas_width // columns, canvas_height // rows)
+        return pixel_size
+    if matrix_size is None:
+        return 1
+
+def select_object(event):
+    global selected_object
+    widget = event.widget
+    x, y = widget.canvasx(event.x), widget.canvasy(event.y)
+    item = widget.find_closest(x, y)
+    selected_object = item
+
+def draw_road():
+    global objects
+    if len(selected_points) == 2:
+        row1, column1 = selected_points[0]
+        row2, column2 = selected_points[1]
+        pixel_size = get_pixel_size()
+
+        
+        x1 = column1 * pixel_size + pixel_size // 2
+        y1 = row1 * pixel_size + pixel_size // 2
+        x2 = column2 * pixel_size + pixel_size // 2
+        y2 = row2 * pixel_size + pixel_size // 2
+        road = canvas.create_line(x1, y1, x2, y2, fill="gray", width=pixel_size, tags="road")
+        canvas.tag_bind(road, "<Button-1>", select_object)
+        objects.append(road)
+
+
+
+def draw_obstacle():
+    global selected_obstacle_color, objects
+    if len(selected_points) == 2:
+        row1, column1 = selected_points[0]
+        row2, column2 = selected_points[1]
+        pixel_size = get_pixel_size()
+        x1 = min(column1, column2) * pixel_size
+        y1 = min(row1, row2) * pixel_size
+        x2 = (max(column1, column2) + 1) * pixel_size
+        y2 = (max(row1, row2) + 1) * pixel_size
+        obstacle_value = obstacle_info.get(selected_obstacle_color, 0)
+        obstacle = canvas.create_rectangle(x1, y1, x2, y2, outline=selected_obstacle_color, fill=selected_obstacle_color, tags="obstacle")
+        canvas.tag_bind(obstacle, "<Button-1>", select_object)
+        objects.append(obstacle)
+
+
+def save_map():
+    file_path = filedialog.asksaveasfilename(defaultextension=".txt", filetypes=[("Text File", "*.txt")])
+    if file_path:
+        canvas_width = canvas.winfo_reqwidth()
+        canvas_height = canvas.winfo_reqheight()
+        pixel_size = get_pixel_size()
+        if pixel_size <= 0:
+            messagebox.showerror("Save Map", "Invalid pixel size. Please set a positive pixel size.")
+            return
+
+        rows = int(canvas_height / pixel_size)
+        columns = int(canvas_width / pixel_size)
+        matrix = np.zeros((rows, columns), dtype=float)
+        for obj in objects:
+            tags = canvas.itemcget(obj, 'tags')
+            if 'road' in tags:
+                x1, y1, x2, y2 = canvas.coords(obj)
+                row1, column1 = get_grid_coordinates(x1, y1)
+                row2, column2 = get_grid_coordinates(x2, y2)
+                min_row = min(row1, row2)
+                max_row = max(row1, row2)
+                min_column = min(column1, column2)
+                max_column = max(column1, column2)
+                dx = abs(column2 - column1)
+                dy = abs(row2 - row1)
+                if dx > dy:
+                    step = np.sign(column2 - column1)
+                    for column in range(column1, column2 + step, step):
+                        row = row1 + int((column - column1) * (row2 - row1) / (column2 - column1))
+                        matrix[row, column] = 1
+                else:
+                    step = np.sign(row2 - row1)
+                    for row in range(row1, row2 + step, step):
+                        column = column1 + int((row - row1) * (column2 - column1) / (row2 - row1))
+                        matrix[row, column] = 1
+            elif 'obstacle' in tags:
+                x1, y1, x2, y2 = canvas.coords(obj)
+                row1, column1 = get_grid_coordinates(x1, y1)
+                row2, column2 = get_grid_coordinates(x2 - 1, y2 - 1)  
+                min_row = min(row1, row2)
+                max_row = max(row1, row2)
+                min_column = min(column1, column2)
+                max_column = max(column1, column2)
+                min_row = max(min_row, 0)
+                max_row = min(max_row, rows - 1)
+                min_column = max(min_column, 0)
+                max_column = min(max_column, columns - 1)
+                for row in range(min_row, max_row + 1):
+                    for column in range(min_column, max_column + 1):
+                        obstacle_color = canvas.itemcget(obj, 'fill')
+                        obstacle_value = obstacle_info.get(obstacle_color, 0)
+                        matrix[min_row:max_row + 1, min_column:max_column + 1] = obstacle_value
+
+        np.savetxt(file_path, matrix, fmt='%.3f')
+        messagebox.showinfo("Save Map", f"Map saved to: {file_path}")
+
+def draw_road_at_grid(row, column):  
+    pixel_size = get_pixel_size()
+    x = column * pixel_size
+    y = row * pixel_size
+    road = canvas.create_rectangle(x, y, x + pixel_size, y + pixel_size, outline="gray", fill="gray", tags="road")
+    canvas.tag_bind(road, "<Button-1>", select_object)
+    objects.append(road)
+obstacle_colors = {}
+
+def load_map():
+    file_path = filedialog.askopenfilename(filetypes=[("Text Files", "*.txt")])
+    if file_path:
+        try:
+            matrix = np.genfromtxt(file_path, dtype=str, comments=None, delimiter=' ')
+            rows, columns = matrix.shape
+            create_canvas((rows, columns))
+
+            for row in range(rows):
+                for column in range(columns):
+                    value = matrix[row, column]
+                    if value == '1.000':
+                        draw_road_at_grid(row, column)
+                    elif value in color_options:
+                        color_code = color_options[value]
+                        draw_obstacle_at_grid(row, column, color_code)
+                    elif value in obstacle_colors:
+                        color_code = obstacle_colors[value]
+                        draw_obstacle_at_grid(row, column, color_code)
+                    elif value == '0.000':
+                        pass
+                    else:
+                       
+                        color_option = colorchooser.askcolor(title=f"Select Color for Value {value}")[1]
+                        if color_option:
+                            obstacle_colors[value] = color_option
+                            draw_obstacle_at_grid(row, column, color_option)
+        except Exception as e:
+            messagebox.showerror("Load Map", f"Error loading map: {str(e)}")
+
+
+def draw_obstacle_at_grid(row, column, color_code):
+    pixel_size = get_pixel_size()
+
+    x1 = column * pixel_size
+    y1 = row * pixel_size
+    x2 = (column + 1) * pixel_size
+    y2 = (row + 1) * pixel_size
+
+    obstacle = canvas.create_rectangle(x1, y1, x2, y2, outline=color_code, fill=color_code, tags="obstacle")
+    canvas.tag_bind(obstacle, "<Button-1>", select_object)
+    objects.append(obstacle)
+menubar = tk.Menu(root)
+filemenu = tk.Menu(menubar, tearoff=0)
+filemenu.add_command(label="New", command=new_file)
+filemenu.add_command(label="Load Map", command=load_map)
+filemenu.add_command(label="Save Map", command=save_map)
+filemenu.add_separator()
+filemenu.add_command(label="Exit", command=exit_program)
+editmenu = tk.Menu(menubar, tearoff=0)
+editmenu.add_command(label="Undo", command=undo)
+editmenu.add_command(label="Delete Area", command=delete_area)
+structuremenu = tk.Menu(menubar, tearoff=0)
+structuremenu.add_command(label="Road", command=add_road)
+structuremenu.add_command(label="Obstacle", command=add_obstacle)
+helpmenu = tk.Menu(menubar, tearoff=0)
+helpmenu.add_command(label="Help Index", command=help_index)
+helpmenu.add_command(label="About...", command=about)
+menubar.add_cascade(label="File", menu=filemenu)
+menubar.add_cascade(label="Edit", menu=editmenu)
+menubar.add_cascade(label="Structure", menu=structuremenu)
+menubar.add_cascade(label="Help", menu=helpmenu)
+root.config(menu=menubar)
+canvas = tk.Canvas(root, width=canvas_width, height=canvas_height, bg="rosy brown")
+canvas.pack()
+canvas.bind("<Button-1>", canvas_click)
+root.mainloop()
